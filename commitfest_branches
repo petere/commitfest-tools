@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+
+"""Convert commitfest submissions into Git branches
+
+Usage: commitfest_branches CFNAME
+
+The commitfest PostgreSQL database must be accessible in a database
+named "commitfest".  Use libpq environment variables if necessary.
+
+Possible workflow:
+
+    git clone ...somwhere.../postgresql.git postgresql-commitfest
+    cd postgresql-commitfest
+    commifest_branches 2013-09
+
+To publish the branches:
+
+    git remote set-url origin somewhere_else
+    git push origin --all
+"""
+
+import email.header
+import email.parser
+import gzip
+import logging
+import psycopg2
+import psycopg2.extras
+import subprocess
+import sys
+import urllib.request
+
+
+def main():
+    pgarchive_init_auth()
+    subprocess.check_call(['git', 'checkout', '-q', 'master'])
+    subprocess.check_call("for b in `git branch | command grep cfpatch-`; do git branch -q -D $b; done", shell=True)
+    for cfpatch in commitfest_latest_patches(cfname=sys.argv[1]):
+        logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
+        msg = pgarchive_raw_message(cfpatch.message_id)
+        patch = patch_in_message(msg)
+        if not patch:
+            logging.error("patch %04d contains no patch file", cfpatch.patch_id)
+            continue
+        subprocess.check_call(['git', 'reset', '-q', '--hard'])
+        subprocess.check_call(['git', 'checkout', '-q', 'master'])
+        subprocess.check_call(['git', 'clean', '-f', '-q'])
+        p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
+        p.communicate(input=bytes(patch, 'UTF-8'))
+        ret = p.wait()
+        if ret != 0:
+            logging.error("patch %04d failed to apply", cfpatch.patch_id)
+            continue
+        subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, 'master'])
+        try:
+            subprocess.check_call(['git', 'add', '-A'])
+            subprocess.check_call(['git',
+                                   'commit',
+                                   '-q',
+                                   '--author=%s' % decode_header(msg['from']),
+                                   '--date=%s' % msg['date'],
+                                   '-m',
+                                   "%s\n\nhttps://commitfest.postgresql.org/action/patch_view?id=%d" % (cfpatch.patch_name,
+                                                                                                        cfpatch.patch_id)])
+        except subprocess.CalledProcessError:
+            subprocess.check_call(['git', 'checkout', '-q', 'master'])
+            subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+        subprocess.check_call("git branch -m cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
+                              % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
+    logging.info("next do: git push somewhere --all")
+
+
+def decode_header(raw):
+    return ' '.join([item[0] if isinstance(item[0], str) else item[0].decode(item[1] or 'us-ascii') for item in email.header.decode_header(raw)])
+
+
+def pgarchive_init_auth():
+    auth_handler = urllib.request.HTTPBasicAuthHandler()
+    auth_handler.add_password(realm='Please authenticate with user archives and password antispam',
+                              uri='http://www.postgresql.org/message-id/raw/',
+                              user='archives',
+                              passwd='antispam')
+    opener = urllib.request.build_opener(auth_handler)
+    urllib.request.install_opener(opener)
+
+
+def pgarchive_raw_message(msgid):
+    try:
+        resp = urllib.request.urlopen('http://www.postgresql.org/message-id/raw/' + msgid)
+    except urllib.error.HTTPError:
+        return None
+    raw = resp.read()
+    parser = email.parser.BytesParser()
+    msg = parser.parsebytes(raw)
+    return msg
+
+
+def patch_in_message(msg):
+    if not msg:
+        return None
+    for part in msg.walk():
+        if part.get_content_maintype() == 'multipart':
+            continue
+        elif part.get_content_type() == 'application/x-gzip' \
+                or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.gz')):
+            return gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8')
+        elif part.get_content_type() in ['application/octet-stream', 'text/x-diff', 'text/x-patch'] \
+                or (part.get_content_type() == 'text/plain' and part.get('Content-Disposition') and 'attachment' in part.get('Content-Disposition') and part.get_filename().endswith('.patch')):
+            filename = part.get_filename()
+            if not filename:
+                continue
+            return part.get_payload(decode=True).decode(encoding='UTF-8')
+
+
+def commitfest_latest_patches(cfname):
+    dbconn = psycopg2.connect(dbname='commitfest')
+    cursor = dbconn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
+    cursor.execute("""
+SELECT patch.id AS patch_id, patch.name AS patch_name, patch_comment.message_id
+FROM patch JOIN patch_comment ON patch_comment.patch_id = patch.id
+JOIN
+(
+SELECT patch_comment.patch_id,
+       max(patch_comment.last_updated_time) AS time
+FROM commitfest JOIN commitfest_topic ON commitfest.id = commitfest_id
+     JOIN patch ON commitfest_topic.id = commitfest_topic_id
+     JOIN patch_comment ON patch_comment.patch_id = patch.id
+     JOIN patch_comment_type ON patch_comment.patch_comment_type_id = patch_comment_type.id
+WHERE commitfest.name = %s
+  AND patch_comment_type.name = 'Patch'
+GROUP BY patch_comment.patch_id, patch.name
+) xx
+ON (patch.id, patch_comment.last_updated_time) = (xx.patch_id, xx.time)
+ORDER BY patch_comment.patch_id;
+""",
+                   [cfname])
+    return cursor.fetchall()
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    main()

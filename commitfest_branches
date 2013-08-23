@@ -2,29 +2,44 @@
 
 """Convert commitfest submissions into Git branches
 
-Usage: commitfest_branches CFNAME
+Usage:
+  commitfest_branches db CFNAME
+  commitfest_branches rss CUTOFFDATE
 
-The commitfest PostgreSQL database must be accessible in a database
-named "commitfest".  Use libpq environment variables if necessary.
+For the databaes mode, the commitfest PostgreSQL database must be
+accessible in a database named "commitfest".  Use libpq environment
+variables if necessary.
 
 Possible workflow:
 
+Initial seeding:
+
     git clone ...somwhere.../postgresql.git postgresql-commitfest
     cd postgresql-commitfest
-    commifest_branches 2013-09
+    commifest_branches db 2013-09
+
+Update:
+
+    commitfest_branches rss 'Tue, 20 Aug 2013 19:07:10 GMT'
 
 To publish the branches:
 
     git remote set-url origin somewhere_else
     git push origin --all
+
 """
 
+from collections import namedtuple
+import datetime
 import email.header
 import email.parser
+import feedparser
 import gzip
 import logging
+import html.parser
 import psycopg2
 import psycopg2.extras
+import re
 import subprocess
 import sys
 import urllib.request
@@ -32,9 +47,11 @@ import urllib.request
 
 def main():
     pgarchive_init_auth()
-    subprocess.check_call(['git', 'checkout', '-q', 'master'])
-    subprocess.check_call("for b in `git branch | command grep cfpatch-`; do git branch -q -D $b; done", shell=True)
-    for cfpatch in commitfest_latest_patches(cfname=sys.argv[1]):
+    if sys.argv[1] == 'db':
+        cfpatches = commitfest_db_latest_patches(cfname=sys.argv[2])
+    elif sys.argv[1] == 'rss':
+        cfpatches = commitfest_rss_patches(sys.argv[2])
+    for cfpatch in cfpatches:
         logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
         msg = pgarchive_raw_message(cfpatch.message_id)
         patch = patch_in_message(msg)
@@ -64,7 +81,7 @@ def main():
         except subprocess.CalledProcessError:
             subprocess.check_call(['git', 'checkout', '-q', 'master'])
             subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
-        subprocess.check_call("git branch -m cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
+        subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
     logging.info("next do: git push somewhere --all")
 
@@ -111,7 +128,7 @@ def patch_in_message(msg):
             return part.get_payload(decode=True).decode(encoding='UTF-8')
 
 
-def commitfest_latest_patches(cfname):
+def commitfest_db_latest_patches(cfname):
     dbconn = psycopg2.connect(dbname='commitfest')
     cursor = dbconn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     cursor.execute("""
@@ -134,6 +151,39 @@ ORDER BY patch_comment.patch_id;
 """,
                    [cfname])
     return cursor.fetchall()
+
+
+def commitfest_rss_patches(cutoff_datetime=None):
+    Record = namedtuple('Record', ['patch_id', 'patch_name', 'message_id'])
+    h = html.parser.HTMLParser()
+    ret = list()
+
+    feed = feedparser.parse('https://commitfest.postgresql.org/action/commitfest_activity.rss')
+    items = feed['items']
+    items.reverse()
+    last_date = None
+    for item in items:
+        description = item['description']
+        if cutoff_datetime and parse_datetime(cutoff_datetime) >= parse_datetime(item['published']):
+            continue
+        last_date = item['published']
+        if not re.search(r'Comment: Patch: ', description):
+            continue
+        m = re.search(r'<a href="http://commitfest.postgresql.org/action/patch_view\?id=(\d+)">([^<]+)</a>', description)
+        assert m
+        patch_id = int(m.group(1))
+        patch_name = h.unescape(m.group(2))
+        m = re.search(r'\(Message-ID: ([^ )]+)\)', description)
+        assert m
+        message_id = m.group(1)
+        r = Record(patch_id, patch_name, message_id)
+        ret.append(r)
+    logging.info("cutoff=%s", last_date)
+    return ret
+
+
+def parse_datetime(s):
+    return datetime.datetime.strptime(s, '%a, %d %b %Y %H:%M:%S %Z')
 
 
 if __name__ == '__main__':

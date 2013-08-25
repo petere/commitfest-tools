@@ -76,14 +76,15 @@ def main():
                                    '--author=%s' % decode_header(msg['from']),
                                    '--date=%s' % msg['date'],
                                    '-m',
-                                   "%s\n\nhttps://commitfest.postgresql.org/action/patch_view?id=%d" % (cfpatch.patch_name,
-                                                                                                        cfpatch.patch_id)])
+                                   "%s\n\nhttps://commitfest.postgresql.org/action/patch_view?id=%d\nhttp://archives.postgresql.org/message-id/%s\n" % (cfpatch.patch_name,
+                                                                                                                                                        cfpatch.patch_id,
+                                                                                                                                                        cfpatch.message_id)])
         except subprocess.CalledProcessError:
             subprocess.check_call(['git', 'checkout', '-q', 'master'])
             subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
-    logging.info("next do: git push somewhere --all")
+    logging.info("next do: git push [-f] somewhere --all")
 
 
 def decode_header(raw):

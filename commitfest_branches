@@ -48,12 +48,12 @@ import urllib.request
 def main():
     pgarchive_init_auth()
     if sys.argv[1] == 'db':
-        cfpatches = commitfest_db_latest_patches(cfname=sys.argv[2])
+        cfpatches, last_date = commitfest_db_latest_patches(cfname=sys.argv[2])
     elif sys.argv[1] == 'rss':
         if len(sys.argv) > 2:
-            cfpatches = commitfest_rss_patches(sys.argv[2])
+            cfpatches, last_date = commitfest_rss_patches(sys.argv[2])
         else:
-            cfpatches = commitfest_rss_patches()
+            cfpatches, last_date = commitfest_rss_patches()
     for cfpatch in cfpatches:
         logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
         msg = pgarchive_raw_message(cfpatch.message_id)
@@ -94,6 +94,14 @@ def main():
                 subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
+    if last_date:
+        subprocess.call(['git', 'branch', '-D', 'rss-last-date'])
+        subprocess.check_call(['git', 'checkout', '--orphan', 'rss-last-date'])
+        subprocess.check_call(['git', 'rm', '-rfq', '.'])
+        with open('rss-last-date.txt', 'w') as f:
+            print(last_date, file=f)
+        subprocess.check_call(['git', 'add', 'rss-last-date.txt'])
+        subprocess.check_call(['git', 'commit', '-m', 'Record last RSS date'])
     subprocess.check_call(['git', 'checkout', '-q', 'master'])
     logging.info("next do: git push [-f] somewhere --all")
 
@@ -164,7 +172,7 @@ ON (patch.id, patch_comment.last_updated_time) = (xx.patch_id, xx.time)
 ORDER BY patch_comment.patch_id;
 """,
                    [cfname])
-    return cursor.fetchall()
+    return cursor.fetchall(), None
 
 
 def commitfest_rss_patches(cutoff_datetime=None):
@@ -195,7 +203,7 @@ def commitfest_rss_patches(cutoff_datetime=None):
         r = Record(patch_id, patch_name, message_id)
         ret.append(r)
     logging.info("cutoff=%s", last_date)
-    return ret
+    return ret, last_date
 
 
 def parse_datetime(s):

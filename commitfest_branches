@@ -50,40 +50,51 @@ def main():
     if sys.argv[1] == 'db':
         cfpatches = commitfest_db_latest_patches(cfname=sys.argv[2])
     elif sys.argv[1] == 'rss':
-        cfpatches = commitfest_rss_patches(sys.argv[2])
+        if len(sys.argv) > 2:
+            cfpatches = commitfest_rss_patches(sys.argv[2])
+        else:
+            cfpatches = commitfest_rss_patches()
     for cfpatch in cfpatches:
         logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
         msg = pgarchive_raw_message(cfpatch.message_id)
-        patch = patch_in_message(msg)
-        if not patch:
+        patches = patches_in_message(msg)
+        if not patches:
             logging.error("patch %04d contains no patch file", cfpatch.patch_id)
             continue
         subprocess.check_call(['git', 'reset', '-q', '--hard'])
         subprocess.check_call(['git', 'checkout', '-q', 'master'])
         subprocess.check_call(['git', 'clean', '-f', '-q'])
-        p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
-        p.communicate(input=bytes(patch, 'UTF-8'))
-        ret = p.wait()
-        if ret != 0:
-            logging.error("patch %04d failed to apply", cfpatch.patch_id)
-            continue
         subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, 'master'])
-        try:
-            subprocess.check_call(['git', 'add', '-A'])
-            subprocess.check_call(['git',
-                                   'commit',
-                                   '-q',
-                                   '--author=%s' % decode_header(msg['from']),
-                                   '--date=%s' % msg['date'],
-                                   '-m',
-                                   "%s\n\nhttps://commitfest.postgresql.org/action/patch_view?id=%d\nhttp://archives.postgresql.org/message-id/%s\n" % (cfpatch.patch_name,
-                                                                                                                                                        cfpatch.patch_id,
-                                                                                                                                                        cfpatch.message_id)])
-        except subprocess.CalledProcessError:
-            subprocess.check_call(['git', 'checkout', '-q', 'master'])
-            subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+        for i, patch in enumerate(patches):
+            p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
+            p.communicate(input=bytes(patch, 'UTF-8'))
+            ret = p.wait()
+            if ret != 0:
+                logging.error("patch %04d failed to apply", cfpatch.patch_id)
+                subprocess.check_call(['git', 'checkout', '-q', 'master'])
+                subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+                break
+            try:
+                commit_msg = cfpatch.patch_name
+                if len(patches) > 1:
+                    commit_msg += " (%d/%d)" % (i + 1, len(patches))
+                commit_msg += "\n\n"
+                commit_msg += "https://commitfest.postgresql.org/action/patch_view?id=%d\n" % cfpatch.patch_id
+                commit_msg += "http://archives.postgresql.org/message-id/%s\n" % cfpatch.message_id
+                subprocess.check_call(['git', 'add', '-A'])
+                subprocess.check_call(['git',
+                                       'commit',
+                                       '-q',
+                                       '--author=%s' % decode_header(msg['from']),
+                                       '--date=%s' % msg['date'],
+                                       '-m',
+                                       commit_msg])
+            except subprocess.CalledProcessError:
+                subprocess.check_call(['git', 'checkout', '-q', 'master'])
+                subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
+    subprocess.check_call(['git', 'checkout', '-q', 'master'])
     logging.info("next do: git push [-f] somewhere --all")
 
 
@@ -112,7 +123,8 @@ def pgarchive_raw_message(msgid):
     return msg
 
 
-def patch_in_message(msg):
+def patches_in_message(msg):
+    patches = []
     if not msg:
         return None
     for part in msg.walk():
@@ -120,13 +132,14 @@ def patch_in_message(msg):
             continue
         elif part.get_content_type() == 'application/x-gzip' \
                 or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.gz')):
-            return gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8')
+            patches.append(gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))
         elif part.get_content_type() in ['application/octet-stream', 'text/x-diff', 'text/x-patch'] \
                 or (part.get_content_type() == 'text/plain' and part.get('Content-Disposition') and 'attachment' in part.get('Content-Disposition') and part.get_filename().endswith('.patch')):
             filename = part.get_filename()
             if not filename:
                 continue
-            return part.get_payload(decode=True).decode(encoding='UTF-8')
+            patches.append(part.get_payload(decode=True).decode(encoding='UTF-8'))
+    return patches
 
 
 def commitfest_db_latest_patches(cfname):
@@ -170,8 +183,10 @@ def commitfest_rss_patches(cutoff_datetime=None):
         last_date = item['published']
         if not re.search(r'Comment: Patch: ', description):
             continue
-        m = re.search(r'<a href="http://commitfest.postgresql.org/action/patch_view\?id=(\d+)">([^<]+)</a>', description)
-        assert m
+        m = re.search(r'''<a href=["']http://commitfest.postgresql.org/action/patch_view\?id=(\d+)["']>([^<]+)</a>''', description)
+        if not m:
+            print(description)
+            sys.exit(1)
         patch_id = int(m.group(1))
         patch_name = h.unescape(m.group(2))
         m = re.search(r'\(Message-ID: ([^ )]+)\)', description)

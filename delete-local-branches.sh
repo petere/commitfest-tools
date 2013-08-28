@@ -1,1 +1,2 @@
-for b in $(git branch | grep cfpatch-); do git branch -D $b; done
+git checkout master
+for b in $(git branch | grep cfpatch-); do git branch -D "$b"; done

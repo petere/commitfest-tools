@@ -82,7 +82,7 @@ def main():
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
     if last_date:
         subprocess.call(['git', 'branch', '-D', 'rss-last-date'])
-        subprocess.check_call(['git', 'checkout', '--orphan', 'rss-last-date'])
+        subprocess.check_call(['git', 'checkout', '-q', '--orphan', 'rss-last-date'])
         subprocess.check_call(['git', 'rm', '-rfq', '.'])
         with open('rss-last-date.txt', 'w') as f:
             print(last_date, file=f)

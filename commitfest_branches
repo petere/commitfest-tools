@@ -29,6 +29,7 @@ To publish the branches:
 
 """
 
+import bz2
 from collections import namedtuple
 import datetime
 import email.header
@@ -138,6 +139,9 @@ def patches_in_message(msg):
     for part in msg.walk():
         if part.get_content_maintype() == 'multipart':
             continue
+        elif part.get_content_type() == 'application/x-bzip2' \
+                or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.bz2')):
+            patches.append(bz2.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))
         elif part.get_content_type() == 'application/x-gzip' \
                 or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.gz')):
             patches.append(gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))

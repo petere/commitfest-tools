@@ -4,11 +4,20 @@ set -eu
 
 git remote show | grep -qw upstream || git remote add upstream git://git.postgresql.org/git/postgresql.git
 git checkout -q master
-git remote update
+git remote update >/dev/null
 git merge -q --ff-only upstream/master
 
+i=0
 for branch in $(git branch -r | grep cfpatch-); do
-	printf "\n# $branch\n"
-	git merge -q --no-commit --no-ff $branch
+	i=$(($i + 1))
+
+	if out=$(git merge -q --no-commit --no-ff $branch 2>&1); then
+		echo "ok $i $branch"
+	else
+		echo "not ok $i $branch"
+		echo "$out" | sed -n '/CONFLICT/s/^/    # /p'
+	fi
 	git reset -q --hard
 done
+
+echo "1..$i"

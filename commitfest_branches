@@ -66,33 +66,18 @@ def main():
         subprocess.check_call(['git', 'checkout', '-q', 'master'])
         subprocess.check_call(['git', 'clean', '-f', '-q'])
         subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, 'master'])
-        for i, patch in enumerate(patches):
-            p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
-            p.communicate(input=bytes(patch, 'UTF-8'))
-            ret = p.wait()
-            if ret != 0:
-                logging.error("patch %04d failed to apply", cfpatch.patch_id)
-                subprocess.check_call(['git', 'checkout', '-q', 'master'])
-                subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
-                break
-            try:
-                commit_msg = cfpatch.patch_name
+        try:
+            for i, patch in enumerate(patches):
                 if len(patches) > 1:
-                    commit_msg += " (%d/%d)" % (i + 1, len(patches))
-                commit_msg += "\n\n"
-                commit_msg += "https://commitfest.postgresql.org/action/patch_view?id=%d\n" % cfpatch.patch_id
-                commit_msg += "http://archives.postgresql.org/message-id/%s\n" % cfpatch.message_id
-                subprocess.check_call(['git', 'add', '-A'])
-                subprocess.check_call(['git',
-                                       'commit',
-                                       '-q',
-                                       '--author=%s' % decode_header(msg['from']),
-                                       '--date=%s' % msg['date'],
-                                       '-m',
-                                       commit_msg])
-            except subprocess.CalledProcessError:
-                subprocess.check_call(['git', 'checkout', '-q', 'master'])
-                subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+                    extra_msg = " (%d/%d)" % (i + 1, len(patches))
+                else:
+                    extra_msg = None
+                apply_patch(msg, cfpatch, patch, extra_msg)
+        except Exception as ex:
+            logging.exception("something wrong")
+            subprocess.check_call(['git', 'checkout', '-q', 'master'])
+            subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+            continue
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
     if last_date:
@@ -152,6 +137,34 @@ def patches_in_message(msg):
                 continue
             patches.append(part.get_payload(decode=True).decode(encoding='UTF-8'))
     return patches
+
+
+def apply_patch(msg, cfpatch, patch, extra_msg):
+    p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
+    p.communicate(input=bytes(patch, 'UTF-8'))
+    ret = p.wait()
+    if ret != 0:
+        logging.error("patch %04d failed to apply", cfpatch.patch_id)
+        raise Exception("patch failed to apply")
+
+    commit_msg = cfpatch.patch_name
+    if extra_msg:
+        commit_msg += extra_msg
+    commit_msg += "\n\n"
+    commit_msg += "https://commitfest.postgresql.org/action/patch_view?id=%d\n" % cfpatch.patch_id
+    commit_msg += "http://archives.postgresql.org/message-id/%s\n" % cfpatch.message_id
+    subprocess.check_call(['git', 'add', '-A'])
+    author = decode_header(msg['from'])
+    if '<' not in author:
+        # XXX trick git-commit
+        author = '"' + author + '" <' + author + '>'
+    subprocess.check_call(['git',
+                           'commit',
+                           '-q',
+                           '--author=%s' % author,
+                           '--date=%s' % msg['date'],
+                           '-m',
+                           commit_msg])
 
 
 def commitfest_db_latest_patches(cfname):

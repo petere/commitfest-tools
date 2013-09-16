@@ -12,7 +12,7 @@ fi
 
 git remote show | grep -qw upstream || git remote add upstream git://git.postgresql.org/git/postgresql.git
 git checkout -q master
-git remote update >/dev/null
+git remote update --prune >/dev/null
 git merge -q --ff-only upstream/master
 
 i=0

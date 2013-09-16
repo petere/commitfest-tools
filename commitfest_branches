@@ -89,7 +89,7 @@ def main():
         subprocess.check_call(['git', 'add', 'rss-last-date.txt'])
         subprocess.check_call(['git', 'commit', '-m', 'Record last RSS date'])
     subprocess.check_call(['git', 'checkout', '-q', 'master'])
-    logging.info("next do: git push [-f] somewhere --all")
+    logging.info("next do: git push -f somewhere --all")
 
 
 def decode_header(raw):

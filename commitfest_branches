@@ -206,7 +206,7 @@ def commitfest_rss_patches(cutoff_datetime=None):
         if cutoff_datetime and parse_datetime(cutoff_datetime) >= parse_datetime(item['published']):
             continue
         last_date = item['published']
-        if not re.search(r'Comment: Patch: ', description):
+        if not re.search(r'(New|Edit) Comment: Patch: ', description):
             continue
         m = re.search(r'''<a href=["']http://commitfest.postgresql.org/action/patch_view\?id=(\d+)["']>([^<]+)</a>''', description)
         if not m:

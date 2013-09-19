@@ -127,7 +127,7 @@ def patches_in_message(msg):
         elif part.get_content_type() == 'application/x-bzip2' \
                 or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.bz2')):
             patches.append(bz2.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))
-        elif part.get_content_type() == 'application/x-gzip' \
+        elif part.get_content_type() in ['application/x-gzip', 'application/x-patch-gzip'] \
                 or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.gz')):
             patches.append(gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))
         elif part.get_content_type() in ['application/octet-stream', 'text/x-diff', 'text/x-patch'] \

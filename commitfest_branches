@@ -46,6 +46,10 @@ import sys
 import urllib.request
 
 
+class PatchFailedException(Exception):
+    """patch failed to apply"""
+
+
 def main():
     pgarchive_init_auth()
     if sys.argv[1] == 'db':
@@ -55,6 +59,9 @@ def main():
             cfpatches, last_date = commitfest_rss_patches(sys.argv[2])
         else:
             cfpatches, last_date = commitfest_rss_patches()
+    delete_local_branches()
+    update_upstream()
+    logging.info("processing patches")
     for cfpatch in cfpatches:
         logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
         msg = pgarchive_raw_message(cfpatch.message_id)
@@ -73,10 +80,10 @@ def main():
                 else:
                     extra_msg = None
                 apply_patch(msg, cfpatch, patch, extra_msg)
-        except Exception as ex:
-            logging.exception("something wrong")
+        except PatchFailedException:
+            subprocess.check_call(['git', 'reset', '-q', '--hard'])
             subprocess.check_call(['git', 'checkout', '-q', 'master'])
-            subprocess.check_call(['git', 'branch', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
+            subprocess.check_call(['git', 'branch', '-q', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
             continue
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
                               % (cfpatch.patch_id, cfpatch.patch_id, cfpatch.patch_id), shell=True)
@@ -145,7 +152,7 @@ def apply_patch(msg, cfpatch, patch, extra_msg):
     ret = p.wait()
     if ret != 0:
         logging.error("patch %04d failed to apply", cfpatch.patch_id)
-        raise Exception("patch failed to apply")
+        raise PatchFailedException("patch failed to apply")
 
     commit_msg = cfpatch.patch_name
     if extra_msg:
@@ -225,6 +232,21 @@ def commitfest_rss_patches(cutoff_datetime=None):
 
 def parse_datetime(s):
     return datetime.datetime.strptime(s, '%a, %d %b %Y %H:%M:%S %Z')
+
+
+def delete_local_branches():
+    logging.info("deleting local cfpatch- branches")
+    subprocess.check_call(['git', 'reset', '-q', '--hard'])
+    subprocess.check_call(['git', 'checkout', '-q', 'master'])
+    subprocess.check_call("git for-each-ref 'refs/heads/cfpatch-*' --format='%(refname:short)' | xargs git branch -D -q", shell=True)
+
+
+def update_upstream():
+    logging.info("updating upstream")
+    subprocess.check_call('git remote show | grep -qw upstream || git remote add upstream git://git.postgresql.org/git/postgresql.git', shell=True)
+    subprocess.check_call(['git', 'checkout', '-q', 'master'])
+    subprocess.check_call('git remote update --prune >/dev/null', shell=True)
+    subprocess.check_call('git merge -q --ff-only upstream/master', shell=True)
 
 
 if __name__ == '__main__':

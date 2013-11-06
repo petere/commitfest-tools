@@ -27,13 +27,6 @@ Make sure you fix your origin remote so you don't accidentally push things to th
 The regular (daily?) workflow with these tools is:
 
     cd postgresql-commitfest
-    sh .../delete-local-branches.sh
-    .../merge_test
-
-If this fails for any patch, report it.  This also updates the master branch for the next step.
-
-If a patch has been applied to the master branch, the merge will probably fail.  Delete finished branches upstream and rerun `merge_test`.
-
     commitfest_branches rss "$(git show origin/rss-last-date:rss-last-date.txt)"
 
 If a patch fails to apply, report that (or fix the tool).
@@ -43,3 +36,9 @@ If a patch fails to apply, report that (or fix the tool).
 Manually verify the created branches.
 
     git push -f origin --all
+
+## merge_test
+
+The `merge_test` program checks whether branches can be merged into the master branch without conflicts.  It's useful to run this regularly during the commit fest, to make sure that patches can be readily applied by reviewers.
+
+If a patch has been applied to the master branch, the merge will probably fail.  Delete finished branches upstream and rerun `merge_test`.

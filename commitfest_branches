@@ -147,7 +147,7 @@ def patches_in_message(msg):
 
 
 def apply_patch(msg, cfpatch, patch, extra_msg):
-    p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-t'], stdin=subprocess.PIPE)
+    p = subprocess.Popen(['patch', '--no-backup-if-mismatch', '-p1', '-s', '-f'], stdin=subprocess.PIPE)
     p.communicate(input=bytes(patch, 'UTF-8'))
     ret = p.wait()
     if ret != 0:

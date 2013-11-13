@@ -35,6 +35,7 @@ import datetime
 import email.header
 import email.parser
 import feedparser
+import getopt
 import gzip
 import logging
 import html.parser
@@ -52,11 +53,16 @@ class PatchFailedException(Exception):
 
 def main():
     pgarchive_init_auth()
-    if sys.argv[1] == 'db':
-        cfpatches, last_date = commitfest_db_latest_patches(cfname=sys.argv[2])
-    elif sys.argv[1] == 'rss':
-        if len(sys.argv) > 2:
-            cfpatches, last_date = commitfest_rss_patches(sys.argv[2])
+    base_revision = 'master'
+    opts, args = getopt.gnu_getopt(sys.argv[1:], 'r:')
+    for o, a in opts:
+        if o == '-r':
+            base_revision = a
+    if args[0] == 'db':
+        cfpatches, last_date = commitfest_db_latest_patches(cfname=args[1])
+    elif args[0] == 'rss':
+        if len(args) > 1:
+            cfpatches, last_date = commitfest_rss_patches(args[1])
         else:
             cfpatches, last_date = commitfest_rss_patches()
     delete_local_branches()
@@ -70,9 +76,9 @@ def main():
             logging.error("patch %04d contains no patch file", cfpatch.patch_id)
             continue
         subprocess.check_call(['git', 'reset', '-q', '--hard'])
-        subprocess.check_call(['git', 'checkout', '-q', 'master'])
+        subprocess.check_call(['git', 'checkout', '-q', base_revision])
         subprocess.check_call(['git', 'clean', '-f', '-q'])
-        subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, 'master'])
+        subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, base_revision])
         try:
             for i, patch in enumerate(patches):
                 if len(patches) > 1:
@@ -82,7 +88,7 @@ def main():
                 apply_patch(msg, cfpatch, patch, extra_msg)
         except PatchFailedException:
             subprocess.check_call(['git', 'reset', '-q', '--hard'])
-            subprocess.check_call(['git', 'checkout', '-q', 'master'])
+            subprocess.check_call(['git', 'checkout', '-q', base_revision])
             subprocess.check_call(['git', 'branch', '-q', '-D', 'cfpatch-%04d' % cfpatch.patch_id])
             continue
         subprocess.check_call("git branch -M cfpatch-%04d cfpatch-%04d-`git log --format=%%f cfpatch-%04d^!`" \
@@ -95,7 +101,7 @@ def main():
             print(last_date, file=f)
         subprocess.check_call(['git', 'add', 'rss-last-date.txt'])
         subprocess.check_call(['git', 'commit', '-m', 'Record last RSS date'])
-    subprocess.check_call(['git', 'checkout', '-q', 'master'])
+    subprocess.check_call(['git', 'checkout', '-q', base_revision])
     logging.info("next do: git push -f somewhere --all")
 
 

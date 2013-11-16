@@ -244,7 +244,7 @@ def delete_local_branches():
     logging.info("deleting local cfpatch- branches")
     subprocess.check_call(['git', 'reset', '-q', '--hard'])
     subprocess.check_call(['git', 'checkout', '-q', 'master'])
-    subprocess.check_call("git for-each-ref 'refs/heads/cfpatch-*' --format='%(refname:short)' | xargs git branch -D -q", shell=True)
+    subprocess.check_call("git for-each-ref 'refs/heads/cfpatch-*' --format='%(refname:short)' | xargs -r git branch -D -q", shell=True)
 
 
 def update_upstream():

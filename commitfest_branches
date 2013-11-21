@@ -83,6 +83,7 @@ def main():
             for i, patch in enumerate(patches):
                 if len(patches) > 1:
                     extra_msg = " (%d/%d)" % (i + 1, len(patches))
+                    logging.info("patch %d/%d", i + 1, len(patches))
                 else:
                     extra_msg = None
                 apply_patch(msg, cfpatch, patch, extra_msg)

@@ -145,8 +145,8 @@ def patches_in_message(msg):
             elif part.get_content_type() in ['application/x-gzip', 'application/x-patch-gzip'] \
                     or (part.get_content_type() == 'application/octet-stream' and part.get_filename().endswith('.patch.gz')):
                 patches.append(gzip.decompress(part.get_payload(decode=True)).decode(encoding='UTF-8'))
-            elif part.get_content_type() in ['application/octet-stream', 'text/x-diff', 'text/x-patch'] \
-                    or (part.get_content_type() == 'text/plain' and part.get('Content-Disposition') and 'attachment' in part.get('Content-Disposition') and (part.get_filename().endswith('.diff') or part.get_filename().endswith('.patch'))):
+            elif part.get_content_type() in ['text/x-diff', 'text/x-patch'] \
+                    or (part.get_content_type() in ['application/octet-stream', 'text/plain'] and part.get('Content-Disposition') and 'attachment' in part.get('Content-Disposition') and (part.get_filename().endswith('.diff') or part.get_filename().endswith('.patch'))):
                 filename = part.get_filename()
                 if not filename:
                     continue

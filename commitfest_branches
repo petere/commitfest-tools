@@ -77,7 +77,7 @@ def main():
             continue
         subprocess.check_call(['git', 'reset', '-q', '--hard'])
         subprocess.check_call(['git', 'checkout', '-q', base_revision])
-        subprocess.check_call(['git', 'clean', '-f', '-q'])
+        subprocess.check_call(['git', 'clean', '-f', '-q', '-d'])
         subprocess.check_call(['git', 'checkout', '-q', '-B', 'cfpatch-%04d' % cfpatch.patch_id, base_revision])
         try:
             for i, patch in enumerate(patches):

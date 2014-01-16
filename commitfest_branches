@@ -69,7 +69,7 @@ def main():
     update_upstream()
     logging.info("processing patches")
     for cfpatch in cfpatches:
-        logging.info("patch %04d: %s", cfpatch.patch_id, cfpatch.patch_name)
+        logging.info("patch %04d: %s [%s]", cfpatch.patch_id, cfpatch.patch_name, cfpatch.patch_date)
         msg = pgarchive_raw_message(cfpatch.message_id)
         patches = patches_in_message(msg)
         if not patches:
@@ -211,7 +211,7 @@ ORDER BY patch_comment.patch_id;
 
 
 def commitfest_rss_patches(cutoff_datetime=None):
-    Record = namedtuple('Record', ['patch_id', 'patch_name', 'message_id'])
+    Record = namedtuple('Record', ['patch_id', 'patch_name', 'message_id', 'patch_date'])
     h = html.parser.HTMLParser()
     ret = list()
 
@@ -221,7 +221,8 @@ def commitfest_rss_patches(cutoff_datetime=None):
     last_date = None
     for item in items:
         description = item['description']
-        if cutoff_datetime and parse_datetime(cutoff_datetime) >= parse_datetime(item['published']):
+        patch_date = parse_datetime(item['published'])
+        if cutoff_datetime and parse_datetime(cutoff_datetime) >= patch_date:
             continue
         last_date = item['published']
         if not re.search(r'(New|Edit) Comment: Patch: ', description):
@@ -235,7 +236,7 @@ def commitfest_rss_patches(cutoff_datetime=None):
         m = re.search(r'\(Message-ID: ([^ )]+)\)', description)
         assert m
         message_id = m.group(1)
-        r = Record(patch_id, patch_name, message_id)
+        r = Record(patch_id, patch_name, message_id, patch_date)
         ret.append(r)
     logging.info("cutoff=%s", last_date)
     return ret, last_date
